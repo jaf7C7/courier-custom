@@ -1,0 +1,5 @@
+# Only the build helpers are needed; sources come from upstream git.
+*
+!merge.py
+!verify.py
+!requirements.txt

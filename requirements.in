@@ -1,0 +1,4 @@
+# Top-level Python tools; requirements.txt is generated from this (see
+# Containerfile).
+fontmake==3.12.2
+brotli

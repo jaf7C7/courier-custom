@@ -1,0 +1,32 @@
+#!/bin/sh
+# Build Courier Custom in a container and export the fonts to ./dist on the
+# host. Extra arguments are passed to `podman build`, e.g.:
+#   ./build --build-arg FAMILY="My Courier"
+set -eu
+
+here="$(cd "$(dirname "$0")" && pwd)"
+dist="${here}/dist"
+
+# Start from an empty dist/ so stale versions never linger
+rm -rf -- "${dist}"
+
+iidfile="$(mktemp)"
+trap 'rm -f "${iidfile}"' EXIT
+
+# --layers=false: don't keep cached intermediate layers in podman storage
+# --output:       copy the final (scratch) stage's files straight to dist/
+podman build \
+    --layers=false \
+    --output "type=local,dest=${dist}" \
+    --iidfile "${iidfile}" \
+    -f "${here}/Containerfile" \
+    "$@" \
+    "${here}"
+
+# podman still commits the exported stage as an untagged image; drop it.
+# (The pinned Debian base image is kept so rebuilds don't re-download it.)
+podman rmi "$(cat "${iidfile}")" >/dev/null
+
+echo
+echo "Build output in ${dist}:"
+(cd "${dist}" && find . -type f | sed 's|^\./||' | sort)
