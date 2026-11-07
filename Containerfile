@@ -1,16 +1,18 @@
 # Builds "Courier Custom": Courier Prime with the digits, punctuation and
-# symbols of Courier Prime Code, as TTF, OTF and WOFF2 (Regular and Italic;
-# Code has no bold). Use ./build rather than invoking this directly; it runs
-# `podman build --output` so that only the final files reach the host.
+# symbols of Courier Prime Code and the tilde of Hack, as TTF, OTF and WOFF2
+# (Regular and Italic; Code has no bold). Use ./build rather than invoking
+# this directly; it runs `podman build --output` so that only the final
+# files reach the host.
 #
 # Courier Prime is built from its .glyphs sources (the UFOs in its repo are
 # stale 2015 exports). merge.py does the glyph swap; see it for the rules.
 # Line spacing, widths and coverage stay Courier Prime's, and verify.py
 # checks that against the upstream TTFs before anything is exported.
 #
-# Neither upstream repo tags releases, so both are pinned by commit. Python
-# tools are pinned by hash in requirements.txt; to upgrade them, edit
-# requirements.in and regenerate it with
+# Courier Prime and Courier Prime Code don't tag releases, so they are
+# pinned by commit; Hack is pinned by release tag and the commit it must
+# point to. Python tools are pinned by hash in requirements.txt; to upgrade
+# them, edit requirements.in and regenerate it with
 #   pip-compile --generate-hashes --strip-extras --allow-unsafe requirements.in
 
 # Debian 13.7 (trixie), pinned by digest for repeatable builds
@@ -23,6 +25,10 @@ ARG PRIME_COMMIT=7fd585a2dd4c1612c79b3308e300923d1c13df93
 
 ARG CODE_REPO=https://github.com/quoteunquoteapps/CourierPrimeCode.git
 ARG CODE_COMMIT=0fcb44c7bcb7e81079dfa9f0d5ac5a4b3e7bf853
+
+ARG HACK_REPO=https://github.com/source-foundry/Hack.git
+ARG HACK_VERSION=3.003
+ARG HACK_COMMIT=b47d21f808fbf4784565feccde2213ef2af924b3
 
 # A new name is required: both upstream names are Reserved Font Names
 # under the OFL
@@ -41,7 +47,9 @@ RUN python3 -m venv /tools/venv \
  && /tools/venv/bin/pip install --no-cache-dir --require-hashes \
         -r /tools/requirements.txt
 
-# Fetching by full commit hash means the checkout can't be anything else
+# Fetching by full commit hash means the checkout can't be anything else.
+# Hack's tag is fetched too and must point at the pinned commit (tags can be
+# moved).
 RUN set -eu; \
     fetch() { \
         git init -q "$3"; \
@@ -49,7 +57,13 @@ RUN set -eu; \
         git -C "$3" checkout -q FETCH_HEAD; \
     }; \
     fetch "${PRIME_REPO}" "${PRIME_COMMIT}" /src/prime; \
-    fetch "${CODE_REPO}" "${CODE_COMMIT}" /src/code
+    fetch "${CODE_REPO}" "${CODE_COMMIT}" /src/code; \
+    fetch "${HACK_REPO}" "refs/tags/v${HACK_VERSION}" /src/hack; \
+    rev="$(git -C /src/hack rev-parse HEAD)"; \
+    if [ "${rev}" != "${HACK_COMMIT}" ]; then \
+        echo "error: Hack v${HACK_VERSION} is ${rev}, expected ${HACK_COMMIT}" >&2; \
+        exit 1; \
+    fi
 
 COPY merge.py verify.py /tools/
 
@@ -58,7 +72,7 @@ WORKDIR /work
 
 # - glyphs2ufo writes one UFO per master (CourierPrime-Regular.ufo, ...);
 #   Prime's Bold masters are converted too but not used.
-# - SOURCE_DATE_EPOCH (the newer upstream commit) fixes head.modified, so
+# - SOURCE_DATE_EPOCH (the newest upstream commit) fixes head.modified, so
 #   rebuilding the same commits gives byte-identical fonts.
 # - fontmake names its output after the UFO, so the merged UFOs carry the
 #   font's file name (CourierCustom-Regular.ufo, ...).
@@ -73,11 +87,13 @@ RUN set -eu; \
     for style in Regular Italic; do \
         python3 -I /tools/merge.py "prime/CourierPrime-${style}.ufo" \
             "code/CourierPrimeCode-${style}.ufo" \
+            "/src/hack/source/Hack-${style}.ufo" \
             "merged/${base}-${style}.ufo" "${FAMILY}"; \
     done; \
     export SOURCE_DATE_EPOCH="$( \
-        { git -C /src/prime log -1 --format=%ct; \
-          git -C /src/code log -1 --format=%ct; } | sort -n | tail -1)"; \
+        for repo in prime code hack; do \
+            git -C "/src/${repo}" log -1 --format=%ct; \
+        done | sort -n | tail -1)"; \
     for format in ttf otf; do \
         fontmake -u merged/*.ufo -o "${format}" --output-dir "/out/${format}"; \
     done; \
@@ -99,6 +115,7 @@ RUN set -eu; \
     done; \
     [ "$(ls /out/*/* | wc -l)" -eq 6 ]; \
     install -m644 /src/prime/OFL.txt /out/OFL.txt; \
+    install -m644 /src/hack/LICENSE.md /out/LICENSE-Hack.md; \
     cd /out; \
     sha256sum */* > SHA256SUMS
 

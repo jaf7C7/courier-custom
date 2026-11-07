@@ -4,7 +4,8 @@ usage: verify.py FONT FAMILY STYLE PRIME_TTF CODE_TTF
 
 Fails unless FONT has the given names, the same vertical metrics, advance
 widths and character coverage as PRIME_TTF, and its digits are shaped like
-CODE_TTF's while its letters are still shaped like PRIME_TTF's.
+CODE_TTF's while its letters are still shaped like PRIME_TTF's, and its
+~ is no longer CODE_TTF's (it comes from Hack).
 """
 
 import string
@@ -78,6 +79,9 @@ def main(path, family, style, prime_path, code_path):
         for char in chars:
             if not shaped_like(font, char, ref, other):
                 errors.append(f"{char!r} is not shaped like {ref_name}'s")
+
+    if distance(bounds(font, "~"), bounds(code, "~")) <= 2:
+        errors.append("'~' is still Code's, not Hack's")
 
     if errors:
         sys.exit(f"{path}:\n  " + "\n  ".join(errors))
